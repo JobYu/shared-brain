@@ -1,6 +1,9 @@
 ---
 name: shared-brain
-description: Set up a unified long-term memory system shared across multiple AI entry points (IM Bot, Cursor, Gemini CLI, Codex, etc.). Use when starting a new project that needs cross-tool memory continuity, or when migrating an existing project to shared memory. Works with any AI coding assistant that supports project-level rules or system prompts.
+description: |
+  Set up a unified long-term memory system shared across multiple AI entry points (IM Bot, Cursor, Gemini CLI, Codex, etc.).
+  TRIGGER: Only when user explicitly asks to "set up shared memory", "add a new entry point", or "migrate memory".
+  DO NOT TRIGGER: For normal tasks like git push, bug fixes, code edits, or Q&A. This skill is a one-time setup tool, not a per-conversation background process.
 ---
 
 # Shared Brain Skill
@@ -13,6 +16,42 @@ Set up a **unified long-term memory** architecture so that multiple AI entry poi
 2. **Append-Only** — All entry points only append. Never overwrite, never delete, never reorder.
 3. **Separation of Concerns** — Identity, rules, user profile, and memory are separate files.
 4. **Memory ≠ Knowledge** — Shared memory stores *who you are and what you decided*. Engineering knowledge (bug fixes, scripts, workflows) goes to a separate knowledge base.
+
+---
+
+## ⚠️ Anti-Chain-Reaction Rules (CRITICAL)
+
+**This section prevents LLMs from entering infinite planning loops. Every entry point MUST follow these rules.**
+
+### Rule 1: This Skill Is a Setup Tool, Not a Background Daemon
+
+This skill should only be invoked when the user explicitly asks to set up, migrate, or configure shared memory. It should **never** auto-trigger during normal tasks (git push, bug fix, code edit, Q&A).
+
+### Rule 2: Lazy-Read, Not Eager-Read
+
+Do **NOT** read all memory files at the start of every conversation. Instead:
+- Read memory files **only when the current task requires context** that you don't already have.
+- If the user's request is self-contained (e.g., "push to GitHub"), do NOT read memory files at all.
+- If the user asks about past decisions or preferences, THEN read memory files.
+
+### Rule 3: No Internal Monologue Leaks
+
+When deciding whether to read/write memory, do it **silently**. Never output your planning process (e.g., "I'll now check the shared memory...", "Let me read the archive..."). Just do it or don't.
+
+### Rule 4: One Task at a Time
+
+Never chain multiple background tasks together. If the user asks to "push to GitHub":
+- ✅ Just push to GitHub.
+- ❌ Do NOT also: read memory → check archives → update memory → capture knowledge → update KIs → ...
+
+### Rule 5: Write Throttle
+
+Only write to shared memory when **ALL** of these are true:
+1. The conversation has genuinely concluded.
+2. A new **long-term** preference or decision was explicitly confirmed by the user.
+3. The information is NOT already in the memory file.
+
+Do **NOT** write to shared memory for: routine tasks, bug fixes, git operations, or file edits.
 
 ---
 
@@ -165,29 +204,40 @@ Create `.cursor/rules/shared-memory.mdc` in the project root:
 
 ```markdown
 ---
-description: Shared memory rules — read/write the unified long-term memory
+description: Shared memory location and rules (lazy-read, append-only)
 globs:
 alwaysApply: true
 ---
 
 ## Shared Memory System
 
-### Files to Read (on every conversation start)
-1. `{memory_root}/shared_memory.md` — Main long-term memory
-2. `{memory_root}/shared_assistant_identity.md` — Who you are
-3. `{memory_root}/core_rules.md` — How to behave
-4. `{memory_root}/{user_id}/profile.md` — User preferences & tone
+### Memory File Locations
+- `{memory_root}/shared_memory.md` — Main long-term memory
+- `{memory_root}/shared_assistant_identity.md` — Identity definition
+- `{memory_root}/core_rules.md` — Behavior rules
+- `{memory_root}/{user_id}/profile.md` — User preferences & tone
 
-### Archive Lookup (when main file doesn't have enough info)
+### When to Read (Lazy-Read — NOT every conversation)
+- Read ONLY when the current task requires context you don't have.
+- Self-contained requests (git push, bug fix, code edit) → do NOT read memory.
+- User asks about past decisions or preferences → read memory.
+
+### Archive Lookup (only when main file doesn't have enough info)
 1. Check `{memory_root}/shared_memory/{YYYY}.md` for yearly keyword index
 2. Open the matching `{memory_root}/shared_memory/{YYYY-MM}.md` for full context
 
 ### Write Rules
 - **Append only** — never delete, overwrite, or reorder existing entries
 - **Format**: `[YYYY-MM-DD HH:MM] one-line summary`
-- **When to write**: After completing a task, confirming a preference, or making an important decision
-- **What to write to shared memory**: User preferences, identity rules, long-term decisions
-- **What NOT to write here** (write to `knowledge/` instead): Bug fixes, scripts, workflows, environment gotchas
+- **Write ONLY when**: A new long-term preference or decision was explicitly confirmed by the user
+- **Do NOT write for**: Routine tasks, bug fixes, git operations, file edits
+- **What to write**: User preferences, identity rules, long-term decisions
+- **What NOT to write** (use `knowledge/` instead): Bug fixes, scripts, workflows, environment gotchas
+
+### ⚠️ Anti-Chain-Reaction
+- Never auto-trigger background tasks (memory read/write, knowledge capture) from a simple user command.
+- Never output your internal planning about memory operations. Just do it silently or skip it.
+- One task at a time. Finish the user's request first, then consider memory updates.
 ```
 
 ### Entry Point: Gemini CLI (via `GEMINI.md` or global rules)
@@ -197,21 +247,31 @@ Create a `GEMINI.md` in the project root, or add to the existing global rules:
 ```markdown
 ## Shared Memory System
 
-Read these files at the start of every conversation:
+### Memory File Locations
 1. `{memory_root}/shared_memory.md`
 2. `{memory_root}/shared_assistant_identity.md`
 3. `{memory_root}/core_rules.md`
 4. `{memory_root}/{user_id}/profile.md`
 
-When the main memory file doesn't contain enough information:
+### When to Read (Lazy-Read)
+- Read ONLY when the current task requires past context you don't have.
+- Do NOT read for self-contained tasks (git push, code edit, bug fix).
+
+### Archive Lookup (fallback only)
 1. Check `{memory_root}/shared_memory/{YYYY}.md` for yearly keyword index
 2. Open the matching `{memory_root}/shared_memory/{YYYY-MM}.md`
 
-Write rules:
+### Write Rules
 - Append only. Never delete or overwrite.
 - Format: `[YYYY-MM-DD HH:MM] one-line summary`
-- Write user preferences and long-term decisions to shared memory.
-- Write engineering details (bug fixes, scripts, workflows) to `knowledge/` instead.
+- Write ONLY new long-term preferences or decisions confirmed by the user.
+- Do NOT write for routine tasks, bug fixes, or git operations.
+- Engineering details → `knowledge/`, not shared memory.
+
+### Anti-Chain-Reaction
+- Complete the user's request FIRST. Consider memory updates only after.
+- Never narrate your memory operations. Do them silently or skip them.
+- One task at a time. No cascading background tasks.
 ```
 
 ### Entry Point: Codex (via `AGENTS.md`)
@@ -221,22 +281,30 @@ Create or update `AGENTS.md` in the project root:
 ```markdown
 ## Shared Memory System
 
-### Required Reading (every session)
+### Memory File Locations
 - `{memory_root}/shared_memory.md` — Long-term context
 - `{memory_root}/shared_assistant_identity.md` — Identity definition
 - `{memory_root}/core_rules.md` — Behavior rules
 - `{memory_root}/{user_id}/profile.md` — User profile
 
-### Archive Lookup
-When main memory is insufficient:
+### When to Read (Lazy-Read)
+- Read ONLY when the task needs past context. Skip for self-contained tasks.
+
+### Archive Lookup (fallback only)
 1. Read `{memory_root}/shared_memory/{YYYY}.md` (yearly keyword index)
 2. Read matching `{memory_root}/shared_memory/{YYYY-MM}.md` (monthly archive)
 
 ### Write Protocol
 - Append-only. No deletions, no overwrites, no reordering.
 - Format: `[YYYY-MM-DD HH:MM] summary`
+- Write ONLY new long-term decisions confirmed by user.
+- Do NOT write for routine tasks or git operations.
 - Shared memory = user preferences, identity, long-term rules
 - Knowledge base = engineering details, bug fixes, workflows
+
+### Anti-Chain-Reaction
+- Finish the user's request first. Memory is secondary.
+- No internal monologue about memory operations.
 ```
 
 ### Entry Point: IM Bot (Telegram, Discord, etc.)
@@ -454,6 +522,15 @@ Remember:
 ## Troubleshooting
 
 ### Common Issues
+
+**🔴 Infinite loop / chain reaction / internal monologue leak:**
+This is the #1 issue. The model receives a simple command (e.g., "push to GitHub") but spirals into reading memory → checking archives → planning writes → narrating all of it.
+- **Root cause**: The entry-point rules tell the model to read memory on every conversation, and the model tries to plan all tasks at once.
+- **Fix**: Switch to **lazy-read** rules (see Anti-Chain-Reaction section). Memory should only be read when the task actually needs past context.
+- **Quick patch**: Add this line to the top of your entry-point rule file:
+  ```
+  CRITICAL: Do NOT read memory files unless the user's request requires past context. For self-contained tasks (git push, code edit, bug fix), skip all memory operations entirely. Never narrate your internal planning.
+  ```
 
 **AI tool ignores shared memory:**
 - Verify the rule file is in the correct location for that tool
