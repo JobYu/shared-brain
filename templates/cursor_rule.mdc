@@ -1,0 +1,24 @@
+---
+description: Shared memory rules — read/write the unified long-term memory
+globs:
+alwaysApply: true
+---
+
+## Shared Memory System
+
+### Files to Read (on every conversation start)
+1. `{memory_root}/shared_memory.md` — Main long-term memory
+2. `{memory_root}/shared_assistant_identity.md` — Who you are
+3. `{memory_root}/core_rules.md` — How to behave
+4. `{memory_root}/{user_id}/profile.md` — User preferences & tone
+
+### Archive Lookup (when main file doesn't have enough info)
+1. Check `{memory_root}/shared_memory/{YYYY}.md` for yearly keyword index
+2. Open the matching `{memory_root}/shared_memory/{YYYY-MM}.md` for full context
+
+### Write Rules
+- **Append only** — never delete, overwrite, or reorder existing entries
+- **Format**: `[YYYY-MM-DD HH:MM] one-line summary`
+- **When to write**: After completing a task, confirming a preference, or making an important decision
+- **What to write to shared memory**: User preferences, identity rules, long-term decisions
+- **What NOT to write here** (write to `knowledge/` instead): Bug fixes, scripts, workflows, environment gotchas
