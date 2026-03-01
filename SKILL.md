@@ -437,12 +437,12 @@ shared_memory/
 
 ### Archive Rules
 
-1. **When to archive**: When the main memory file exceeds ~100 entries or ~5KB.
+1. **When to archive**: When the main memory file exceeds ~500 entries.
 2. **Who archives**: Archiving is **user-initiated** — e.g., the user says "archive old memory entries". AI tools should NOT auto-archive in the middle of a task. They may *suggest* archiving if they notice the file is large.
-3. **How to archive**: Move older entries (keeping the most recent ~30) to the appropriate `YYYY-MM.md`.
+3. **How to archive**: Move older entries (keeping the most recent ~100) to the appropriate `YYYY-MM.md`.
 4. **Update the yearly index** after each archive operation.
 5. **The main file should always stay lightweight** — it represents *current* context, not full history.
-6. **Over-limit behavior**: If the main file exceeds ~150 entries, the AI should append a warning line `[YYYY-MM-DD HH:MM] (System) ⚠️ Memory file is getting long (~N entries). Consider archiving.` and suggest archiving to the user. It should NOT refuse to write or silently auto-archive.
+6. **Over-limit behavior**: If the main file exceeds ~1000 entries, the AI should append a warning line `[YYYY-MM-DD HH:MM] (System) ⚠️ Memory file is getting long (~N entries). Consider archiving.` and suggest archiving to the user. It should NOT refuse to write or silently auto-archive.
 
 ### Lookup Logic (Hard Rule — Only When Lazy-Read Is Triggered)
 
