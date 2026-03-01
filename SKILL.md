@@ -228,7 +228,7 @@ alwaysApply: true
 
 ### Write Rules
 - **Append only** — never delete, overwrite, or reorder existing entries
-- **Format**: `[YYYY-MM-DD HH:MM] one-line summary`
+- **Format**: `[YYYY-MM-DD HH:MM] (ToolName) one-line summary` — always include which tool wrote the entry
 - **Write ONLY when**: A new long-term preference or decision was explicitly confirmed by the user
 - **Do NOT write for**: Routine tasks, bug fixes, git operations, file edits
 - **What to write**: User preferences, identity rules, long-term decisions
@@ -263,7 +263,7 @@ Create a `GEMINI.md` in the project root, or add to the existing global rules:
 
 ### Write Rules
 - Append only. Never delete or overwrite.
-- Format: `[YYYY-MM-DD HH:MM] one-line summary`
+- Format: `[YYYY-MM-DD HH:MM] (ToolName) one-line summary`
 - Write ONLY new long-term preferences or decisions confirmed by the user.
 - Do NOT write for routine tasks, bug fixes, or git operations.
 - Engineering details → `knowledge/`, not shared memory.
@@ -296,7 +296,7 @@ Create or update `AGENTS.md` in the project root:
 
 ### Write Protocol
 - Append-only. No deletions, no overwrites, no reordering.
-- Format: `[YYYY-MM-DD HH:MM] summary`
+- Format: `[YYYY-MM-DD HH:MM] (ToolName) summary`
 - Write ONLY new long-term decisions confirmed by user.
 - Do NOT write for routine tasks or git operations.
 - Shared memory = user preferences, identity, long-term rules
@@ -309,12 +309,12 @@ Create or update `AGENTS.md` in the project root:
 
 ### Entry Point: IM Bot (Telegram, Discord, etc.)
 
-For bot frameworks, the shared memory is injected at the prompt assembly stage. Provide guidance to the user:
+For bot frameworks, the shared memory is injected at the prompt assembly stage. The same **lazy-read** principle applies:
 
-1. **At prompt assembly time**, read `shared_memory.md` and inject its content into the system prompt or context.
-2. **Also read** `shared_assistant_identity.md`, `core_rules.md`, and the user's `profile.md`.
-3. **After each conversation turn** (or at session end), append new long-term conclusions to `shared_memory.md`.
-4. **For archive lookup**, implement the same logic: main file → yearly index → monthly archive.
+1. **Always read** `shared_assistant_identity.md` and `core_rules.md` — these are small, static files that define who the bot is. Loading them is cheap.
+2. **Lazy-read** `shared_memory.md` and `profile.md` — only inject these when the conversation topic needs past context (e.g., user references a past decision). For simple requests, skip them.
+3. **Write with source tag** — when appending to memory, always include the tool name: `[YYYY-MM-DD HH:MM] (TelegramBot) summary`.
+4. **For archive lookup**, implement the same fallback: main file → yearly index → monthly archive.
 
 Example pseudo-code (adapt to your bot framework):
 
@@ -322,39 +322,54 @@ Example pseudo-code (adapt to your bot framework):
 import os
 from datetime import datetime
 
-def build_system_prompt(memory_root, user_id):
-    """Build system prompt with shared memory context."""
+# Static files: small, rarely change. Safe to always load.
+STATIC_FILES = ["shared_assistant_identity.md", "core_rules.md"]
+
+# Dynamic files: can be large. Load only when needed.
+DYNAMIC_FILES = ["shared_memory.md"]  # + profile.md per user
+
+
+def build_system_prompt(memory_root, user_id, needs_memory_context=False):
+    """
+    Build system prompt with shared memory context.
+    
+    Args:
+        needs_memory_context: Set to True only when the user's message
+        references past decisions, preferences, or history. For simple
+        self-contained requests, set to False to avoid bloating the prompt.
+    """
     parts = []
 
-    # 1. Read identity
-    identity_path = os.path.join(memory_root, "shared_assistant_identity.md")
-    if os.path.exists(identity_path):
-        parts.append(read_file(identity_path))
+    # 1. Always read static files (identity + rules)
+    for filename in STATIC_FILES:
+        filepath = os.path.join(memory_root, filename)
+        if os.path.exists(filepath):
+            parts.append(read_file(filepath))
 
-    # 2. Read core rules
-    rules_path = os.path.join(memory_root, "core_rules.md")
-    if os.path.exists(rules_path):
-        parts.append(read_file(rules_path))
-
-    # 3. Read user profile
+    # 2. Read user profile (small, per-user)
     profile_path = os.path.join(memory_root, user_id, "profile.md")
     if os.path.exists(profile_path):
         parts.append(read_file(profile_path))
 
-    # 4. Read shared memory (main file)
-    memory_path = os.path.join(memory_root, "shared_memory.md")
-    if os.path.exists(memory_path):
-        parts.append(read_file(memory_path))
+    # 3. Lazy-read: only load shared memory when the task needs it
+    if needs_memory_context:
+        memory_path = os.path.join(memory_root, "shared_memory.md")
+        if os.path.exists(memory_path):
+            parts.append(read_file(memory_path))
 
     return "\n\n---\n\n".join(parts)
 
 
-def append_to_memory(memory_root, summary):
-    """Append a new entry to shared memory. Append-only, never overwrite."""
+def append_to_memory(memory_root, summary, tool_name="Bot"):
+    """
+    Append a new entry to shared memory.
+    Always includes the source tool name for traceability.
+    Append-only — never overwrite.
+    """
     memory_path = os.path.join(memory_root, "shared_memory.md")
     timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M]")
     with open(memory_path, "a") as f:
-        f.write(f"\n{timestamp} {summary}\n")
+        f.write(f"\n{timestamp} ({tool_name}) {summary}\n")
 
 
 def lookup_archive(memory_root, query_keywords):
@@ -423,15 +438,18 @@ shared_memory/
 ### Archive Rules
 
 1. **When to archive**: When the main memory file exceeds ~100 entries or ~5KB.
-2. **How to archive**: Move older entries (keeping the most recent ~30) to the appropriate `YYYY-MM.md`.
-3. **Update the yearly index** after each archive operation.
-4. **The main file should always stay lightweight** — it represents *current* context, not full history.
+2. **Who archives**: Archiving is **user-initiated** — e.g., the user says "archive old memory entries". AI tools should NOT auto-archive in the middle of a task. They may *suggest* archiving if they notice the file is large.
+3. **How to archive**: Move older entries (keeping the most recent ~30) to the appropriate `YYYY-MM.md`.
+4. **Update the yearly index** after each archive operation.
+5. **The main file should always stay lightweight** — it represents *current* context, not full history.
+6. **Over-limit behavior**: If the main file exceeds ~150 entries, the AI should append a warning line `[YYYY-MM-DD HH:MM] (System) ⚠️ Memory file is getting long (~N entries). Consider archiving.` and suggest archiving to the user. It should NOT refuse to write or silently auto-archive.
 
-### Lookup Logic (Hard Rule for All Entry Points)
+### Lookup Logic (Hard Rule — Only When Lazy-Read Is Triggered)
 
-This must be written as an explicit rule for every entry point:
+This lookup logic applies **only** when the task actually requires past context (per lazy-read rules). For self-contained tasks, skip entirely.
 
 ```
+0. Is this task self-contained? (git push, code edit, bug fix) → SKIP ALL LOOKUPS
 1. Read shared_memory.md (main file)
 2. If the information you need is NOT in the main file:
    a. Read shared_memory/{current_year}.md (yearly keyword index)
@@ -473,7 +491,7 @@ When something has both types of value:
 2. Write the **full details** to `knowledge/*.md`
 
 Example:
-- Memory: `[2026-03-01 14:00] Decided to use append-only pattern for all shared memory writes.`
+- Memory: `[2026-03-01 14:00] (Cursor) Decided to use append-only pattern for all shared memory writes.`
 - Knowledge: Full article on why append-only, how to implement it, and edge cases.
 
 ---
